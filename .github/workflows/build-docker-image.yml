@@ -99,6 +99,23 @@ jobs:
           tags: |
             type=raw,value=${{ steps.vars.outputs.version_tag }}
 
+      - name: Filter Docker labels
+        id: filtered-labels
+        shell: bash
+        env:
+          METADATA_LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          filtered_labels="$(printf '%s\n' "$METADATA_LABELS" | awk -F= '
+            $1 != "org.opencontainers.image.description" &&
+            $1 != "org.opencontainers.image.licenses" { print }
+          ')"
+
+          {
+            echo 'labels<<EOF'
+            printf '%s\n' "$filtered_labels"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -122,7 +139,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: ${{ steps.filtered-labels.outputs.labels }}
           build-args: |
             BUILD_DEBUG=${{ steps.vars.outputs.build_debug }}
             WITH_IDE=${{ steps.vars.outputs.with_ide }}
