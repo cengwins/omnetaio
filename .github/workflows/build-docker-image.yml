@@ -1,6 +1,13 @@
 name: Build Docker image
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - build-versions.env
+      - Dockerfile
+      - .github/workflows/build-docker-image.yml
   workflow_dispatch:
     inputs:
       omnetpp_version:
@@ -29,6 +36,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 env:
   REGISTRY: ghcr.io
@@ -83,6 +91,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.version_tag }}
+
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -91,15 +107,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
       - name: Build and push multi-arch image
+        id: build-and-push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.version_tag }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_DEBUG=${{ steps.vars.outputs.build_debug }}
             WITH_IDE=${{ steps.vars.outputs.with_ide }}
@@ -108,3 +131,11 @@ jobs:
             SIMU5G_VERSION=${{ steps.vars.outputs.simu5g_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Sign the published Docker image
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          echo "$TAGS" | xargs -I {} cosign sign --yes {}@${DIGEST}
