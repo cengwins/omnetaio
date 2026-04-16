@@ -227,7 +227,7 @@ jobs:
           IMAGE_REF: ${{ steps.refs.outputs.final_image_ref }}
         run: |
           cosign sign --yes \
-            --registry-referrers-api oci \
+            --registry-referrers-mode=oci-1-1 \
             -a "repo=${{ github.repository }}" \
             -a "workflow=${{ github.workflow }}" \
             -a "sha=${{ github.sha }}" \
