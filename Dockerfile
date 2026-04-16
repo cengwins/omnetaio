@@ -22,7 +22,6 @@ ARG WITH_IDE=true
 
 ARG OMNETPP_VERSION
 ARG INET_VERSION
-ARG INET_MAJOR_VERSION
 ARG SIMU5G_VERSION
 
 SHELL ["/bin/bash", "-exo", "pipefail", "-c"]
@@ -86,7 +85,7 @@ RUN python3 -m venv /opt/venv --upgrade-deps --clear --prompt "omnetpp/.venv" &&
 WORKDIR /opt
 RUN wget https://github.com/inet-framework/inet/releases/download/v$INET_VERSION/inet-$INET_VERSION-src.tgz \
          --referer=https://omnetpp.org/ -O inet-src.tgz --progress=dot:mega && \
-         tar xf inet-src.tgz && rm inet-src.tgz && mv inet$INET_MAJOR_VERSION inet
+         tar xf inet-src.tgz && rm inet-src.tgz && mv inet*/ inet
 
 # Set the environment and build INET
 # INET has python requirements but they are not needed for building

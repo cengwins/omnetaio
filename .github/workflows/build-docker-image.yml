@@ -1,0 +1,110 @@
+name: Build Docker image
+
+on:
+  workflow_dispatch:
+    inputs:
+      omnetpp_version:
+        description: OMNeT++ version
+        required: false
+        type: string
+      inet_version:
+        description: INET version
+        required: false
+        type: string
+      simu5g_version:
+        description: Simu5G version
+        required: false
+        type: string
+      build_debug:
+        description: Build debug binaries too
+        required: false
+        default: true
+        type: boolean
+      with_ide:
+        description: Include IDE and Qt support
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve build inputs
+        id: vars
+        shell: bash
+        run: |
+          defaults_file="build-versions.env"
+          source "$defaults_file"
+
+          omnetpp_version="${{ github.event.inputs.omnetpp_version }}"
+          inet_version="${{ github.event.inputs.inet_version }}"
+          simu5g_version="${{ github.event.inputs.simu5g_version }}"
+          build_debug="${{ github.event.inputs.build_debug }}"
+          with_ide="${{ github.event.inputs.with_ide }}"
+
+          if [[ -z "$omnetpp_version" ]]; then omnetpp_version="$OMNETPP_VERSION"; fi
+          if [[ -z "$inet_version" ]]; then inet_version="$INET_VERSION"; fi
+          if [[ -z "$simu5g_version" ]]; then simu5g_version="$SIMU5G_VERSION"; fi
+          if [[ -z "$build_debug" ]]; then build_debug="true"; fi
+          if [[ -z "$with_ide" ]]; then with_ide="true"; fi
+
+          if [[ "$build_debug" == "true" ]]; then
+            build_mode="debug"
+          else
+            build_mode="release"
+          fi
+
+          version_tag="${omnetpp_version}-inet${inet_version}-simu5g${simu5g_version}-${build_mode}"
+
+          echo "omnetpp_version=${omnetpp_version}" >> "$GITHUB_OUTPUT"
+          echo "inet_version=${inet_version}" >> "$GITHUB_OUTPUT"
+          echo "simu5g_version=${simu5g_version}" >> "$GITHUB_OUTPUT"
+          echo "build_debug=${build_debug}" >> "$GITHUB_OUTPUT"
+          echo "with_ide=${with_ide}" >> "$GITHUB_OUTPUT"
+          echo "build_mode=${build_mode}" >> "$GITHUB_OUTPUT"
+          echo "version_tag=${version_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.version_tag }}
+          build-args: |
+            BUILD_DEBUG=${{ steps.vars.outputs.build_debug }}
+            WITH_IDE=${{ steps.vars.outputs.with_ide }}
+            OMNETPP_VERSION=${{ steps.vars.outputs.omnetpp_version }}
+            INET_VERSION=${{ steps.vars.outputs.inet_version }}
+            SIMU5G_VERSION=${{ steps.vars.outputs.simu5g_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
