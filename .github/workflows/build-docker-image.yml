@@ -225,6 +225,7 @@ jobs:
       - name: Sign the published Docker manifest
         env:
           IMAGE_REF: ${{ steps.refs.outputs.final_image_ref }}
+          COSIGN_EXPERIMENTAL: 1
         run: |
           cosign sign --yes \
             --registry-referrers-mode=oci-1-1 \
