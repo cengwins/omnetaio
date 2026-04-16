@@ -43,8 +43,17 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  prepare:
+    name: Prepare build inputs
     runs-on: ubuntu-latest
+    outputs:
+      omnetpp_version: ${{ steps.vars.outputs.omnetpp_version }}
+      inet_version: ${{ steps.vars.outputs.inet_version }}
+      simu5g_version: ${{ steps.vars.outputs.simu5g_version }}
+      build_debug: ${{ steps.vars.outputs.build_debug }}
+      with_ide: ${{ steps.vars.outputs.with_ide }}
+      build_mode: ${{ steps.vars.outputs.build_mode }}
+      version_tag: ${{ steps.vars.outputs.version_tag }}
 
     steps:
       - name: Check out repository
@@ -85,8 +94,31 @@ jobs:
           echo "build_mode=${build_mode}" >> "$GITHUB_OUTPUT"
           echo "version_tag=${version_tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Compute image references
+        id: refs
+        shell: bash
+        run: |
+          version_tag="${{ needs.prepare.outputs.version_tag }}"
+          image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version_tag}-${{ matrix.arch }}"
+
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -97,7 +129,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.vars.outputs.version_tag }}
+            type=raw,value=${{ needs.prepare.outputs.version_tag }}
 
       - name: Filter Docker labels
         id: filtered-labels
@@ -124,39 +156,79 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v4.1.0
-        with:
-          cosign-release: v3.0.6
-
-      - name: Build and push multi-arch image
+      - name: Build and push arch image
         id: build-and-push
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.refs.outputs.image_ref }}
           labels: ${{ steps.filtered-labels.outputs.labels }}
           build-args: |
-            BUILD_DEBUG=${{ steps.vars.outputs.build_debug }}
-            WITH_IDE=${{ steps.vars.outputs.with_ide }}
-            OMNETPP_VERSION=${{ steps.vars.outputs.omnetpp_version }}
-            INET_VERSION=${{ steps.vars.outputs.inet_version }}
-            SIMU5G_VERSION=${{ steps.vars.outputs.simu5g_version }}
+            BUILD_DEBUG=${{ needs.prepare.outputs.build_debug }}
+            WITH_IDE=${{ needs.prepare.outputs.with_ide }}
+            OMNETPP_VERSION=${{ needs.prepare.outputs.omnetpp_version }}
+            INET_VERSION=${{ needs.prepare.outputs.inet_version }}
+            SIMU5G_VERSION=${{ needs.prepare.outputs.simu5g_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Sign the published Docker image
-        if: github.event_name != 'pull_request'
+  manifest:
+    name: Publish manifest
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Resolve manifest references
+        id: refs
+        shell: bash
+        run: |
+          version_tag="${{ needs.prepare.outputs.version_tag }}"
+          final_image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version_tag}"
+          amd64_image_ref="${final_image_ref}-amd64"
+          arm64_image_ref="${final_image_ref}-arm64"
+
+          echo "final_image_ref=${final_image_ref}" >> "$GITHUB_OUTPUT"
+          echo "amd64_image_ref=${amd64_image_ref}" >> "$GITHUB_OUTPUT"
+          echo "arm64_image_ref=${arm64_image_ref}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.refs.outputs.final_image_ref }}" \
+            "${{ steps.refs.outputs.amd64_image_ref }}" \
+            "${{ steps.refs.outputs.arm64_image_ref }}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign the published Docker manifest
         env:
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          IMAGE_REF: ${{ steps.refs.outputs.final_image_ref }}
         run: |
           cosign sign --yes \
             --registry-referrers-api oci \
             -a "repo=${{ github.repository }}" \
             -a "workflow=${{ github.workflow }}" \
             -a "sha=${{ github.sha }}" \
-            ${{ steps.meta.outputs.tags }}@${DIGEST}
+            "$IMAGE_REF"
