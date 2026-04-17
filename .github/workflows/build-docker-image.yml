@@ -54,6 +54,7 @@ jobs:
       with_ide: ${{ steps.vars.outputs.with_ide }}
       build_mode: ${{ steps.vars.outputs.build_mode }}
       version_tag: ${{ steps.vars.outputs.version_tag }}
+      image_name: ${{ steps.vars.outputs.image_name }}
       description: ${{ steps.vars.outputs.description }}
       license: ${{ steps.vars.outputs.license }}
 
@@ -87,6 +88,7 @@ jobs:
           fi
 
           version_tag="${omnetpp_version}-inet${inet_version}-simu5g${simu5g_version}-${build_mode}"
+          image_name="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
 
           echo "omnetpp_version=${omnetpp_version}" >> "$GITHUB_OUTPUT"
           echo "inet_version=${inet_version}" >> "$GITHUB_OUTPUT"
@@ -95,6 +97,7 @@ jobs:
           echo "with_ide=${with_ide}" >> "$GITHUB_OUTPUT"
           echo "build_mode=${build_mode}" >> "$GITHUB_OUTPUT"
           echo "version_tag=${version_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_name=${image_name}" >> "$GITHUB_OUTPUT"
 
           echo "description=${DESCRIPTION}" >> "$GITHUB_OUTPUT"
           echo "license=${LICENSE}" >> "$GITHUB_OUTPUT"
@@ -121,7 +124,7 @@ jobs:
         shell: bash
         run: |
           version_tag="${{ needs.prepare.outputs.version_tag }}"
-          image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version_tag}-${{ matrix.arch }}"
+          image_ref="${{ needs.prepare.outputs.image_name }}:${version_tag}-${{ matrix.arch }}"
 
           echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
 
@@ -132,7 +135,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ needs.prepare.outputs.image_name }}
           tags: |
             type=raw,value=${{ needs.prepare.outputs.version_tag }}
 
@@ -199,7 +202,7 @@ jobs:
         shell: bash
         run: |
           version_tag="${{ needs.prepare.outputs.version_tag }}"
-          final_image_ref="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version_tag}"
+          final_image_ref="${{ needs.prepare.outputs.image_name }}:${version_tag}"
           amd64_image_ref="${final_image_ref}-amd64"
           arm64_image_ref="${final_image_ref}-arm64"
 
@@ -222,6 +225,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag "${{ steps.refs.outputs.final_image_ref }}" \
+            --tag "${{ needs.prepare.outputs.image_name }}:latest" \
             --annotation "index:org.opencontainers.image.description=${{ needs.prepare.outputs.description }}" \
             --annotation "index:org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}" \
             "${{ steps.refs.outputs.amd64_image_ref }}" \
@@ -237,10 +241,10 @@ jobs:
 
       - name: Sign the published Docker manifest
         env:
-          IMAGE_REF: ${{ steps.create.outputs.digest }}
+          DIGEST: ${{ steps.create.outputs.digest }}
           COSIGN_EXPERIMENTAL: 1
         run: |
           cosign sign --yes \
             --registry-referrers-mode=oci-1-1 \
             -a "repo=${{ github.repository }}" \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@$IMAGE_REF"
+            "${{ needs.prepare.outputs.image_name }}@$DIGEST"
