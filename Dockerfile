@@ -1,12 +1,16 @@
 FROM ubuntu:24.04
+
+ARG DESCRIPTION
+ARG LICENSE
+
 LABEL org.opencontainers.image.authors="Mohamed Eldeeb <mohamed.eldeeb@metu.edu.tr>"
 LABEL org.opencontainers.image.vendor="WINS Lab, Middle East Technical University"
-LABEL org.opencontainers.image.licenses="Academic-Public-License-v1.1 AND LGPL-3.0-only"
-LABEL org.opencontainers.image.description="\
-    Image containing source code and binaries for OMNeT++, INET, and Simu5G. \
-    OMNeT++ is subject to APL. INET and Simu5G are subject to LGPL. See /usr/share/licenses/ for details."
+LABEL org.opencontainers.image.description="$DESCRIPTION"
+LABEL org.opencontainers.image.licenses="$LICENSE"
 
-# This image builds OMNeT++, INET, and Simu5G from source.
+# Image containing source code and binaries for OMNeT++, INET, and Simu5G.
+# OMNeT++ is subject to APL. INET and Simu5G are subject to LGPL. See /usr/share/licenses/ for details.
+
 # Using a multi-stage build will not help much since INET depends on OMNeT++, Simu5G depends on INET, etc
 #  so an update to any of them will require rebuilding subsequent layers.
 # However, we still keep the final image smaller by removing build cache.

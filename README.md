@@ -52,7 +52,7 @@ The INET Framework and Simu5G are included under the **GNU Lesser General Public
 
 -----
 
-## 🛠️ Usage in Derived Projects
+## Usage in Derived Projects
 
 You can use this image as a base for your own research simulations:
 

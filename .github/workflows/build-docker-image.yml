@@ -54,6 +54,8 @@ jobs:
       with_ide: ${{ steps.vars.outputs.with_ide }}
       build_mode: ${{ steps.vars.outputs.build_mode }}
       version_tag: ${{ steps.vars.outputs.version_tag }}
+      description: ${{ steps.vars.outputs.description }}
+      license: ${{ steps.vars.outputs.license }}
 
     steps:
       - name: Check out repository
@@ -93,6 +95,9 @@ jobs:
           echo "with_ide=${with_ide}" >> "$GITHUB_OUTPUT"
           echo "build_mode=${build_mode}" >> "$GITHUB_OUTPUT"
           echo "version_tag=${version_tag}" >> "$GITHUB_OUTPUT"
+
+          echo "description=${DESCRIPTION}" >> "$GITHUB_OUTPUT"
+          echo "license=${LICENSE}" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.arch }}
@@ -172,6 +177,8 @@ jobs:
             OMNETPP_VERSION=${{ needs.prepare.outputs.omnetpp_version }}
             INET_VERSION=${{ needs.prepare.outputs.inet_version }}
             SIMU5G_VERSION=${{ needs.prepare.outputs.simu5g_version }}
+            DESCRIPTION=${{ needs.prepare.outputs.description }}
+            LICENSE=${{ needs.prepare.outputs.license }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -211,9 +218,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push manifest
+        id: create
         run: |
           docker buildx imagetools create \
             --tag "${{ steps.refs.outputs.final_image_ref }}" \
+            --annotation "index:org.opencontainers.image.description=${{ needs.prepare.outputs.description }}" \
+            --annotation "index:org.opencontainers.image.licenses=${{ needs.prepare.outputs.license }}" \
             "${{ steps.refs.outputs.amd64_image_ref }}" \
             "${{ steps.refs.outputs.arm64_image_ref }}"
 
